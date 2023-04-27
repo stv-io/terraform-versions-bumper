@@ -9,10 +9,11 @@ import httpx
 import json
 import argparse
 
+
 def main():
     parser = argparse.ArgumentParser(description="Bump terraform required versions and provider versions to latest releases")
-    parser.add_argument("--dry-run", "-r", dest='dry_run', help="Dry run, don't modify files",action="store_true")
-    parser.add_argument("--backup" , "-b", dest='backup', help="create backup files with a suffix", action="store_true")
+    parser.add_argument("--dry-run", "-r", dest='dry_run', help="Dry run, don't modify files", action="store_true")
+    parser.add_argument("--backup", "-b", dest='backup', help="create backup files with a suffix", action="store_true")
     parser.add_argument("--display", "-d", dest='display', help="display matched files and contents", action="store_true")
     parser.add_argument("--verbose", "-v", dest='verbose', help="display matched files and contents", action="store_true")
     args = parser.parse_args()
@@ -21,8 +22,6 @@ def main():
     backup = args.backup
     display = args.display
     verbose = args.verbose
-
-    print(f"dry_run: {dry_run}, backup: {backup}, display: {display}, verbose: {verbose}")
 
     log_format = "%(levelname)s: %(message)s"
     logging.basicConfig(format=log_format, level=logging.INFO)
@@ -75,7 +74,7 @@ def main():
             logging.info(
                 f"Updating provider {provider_name} in required_providers from {provider_version} to {latest_provider_version}"
             )
-            if not dry_run:        
+            if not dry_run:
                 bump_version_latest(
                     providers_required_filename, provider_version, latest_provider_version
                 )
@@ -84,7 +83,7 @@ def main():
         if display:
             cat(providers_required_filename)
 
-    logging.info(f"Versions are up to date. Please check in any updated files.")
+    logging.info("Versions are up to date. Please check in any updated files.")
 
 
 def backup_file(filename):
@@ -191,6 +190,7 @@ def get_latest_provider(source):
     except httpx.HTTPError as e:
         logging.error(f"{response.status_code} {e} error querying {url}:\n {response.text}")
         return None
+
 
 def remove_comparison_operator(version_string):
     version_parts = version_string.split(" ")

@@ -9,9 +9,6 @@ import httpx
 import json
 import argparse
 
-# TODO: cater for when we don't have matching terraform files,
-# or we don't find the terraform block
-
 def main():
     parser = argparse.ArgumentParser(description="Bump terraform required versions and provider versions to latest releases")
     parser.add_argument("--dry-run", "-r", dest='dry_run', help="Dry run, don't modify files",action="store_true")
@@ -40,56 +37,60 @@ def main():
     logging.info("Searching for \"required_version\" in all *.tf files ..")
     tf_required_filename = find_file_with_string("required_version", "*.tf")
     if backup:
-        backup(tf_required_filename)
+        backup_file(tf_required_filename)
     logging.info(f"Processing {tf_required_filename}..")
     tf_required_block = load_terraform_block(tf_required_filename)
     current_tf_version_string = resolve_tf_version(tf_required_block)
-    current_tf_version = resolve_version(current_tf_version_string)
+    current_tf_version = remove_comparison_operator(current_tf_version_string)
     logging.info(f"current_tf_version {current_tf_version}")
     latest_terraform_release = get_latest_terraform_release()
     latest_terraform_version = latest_terraform_release.replace("v", "")
-
     if not dry_run:
-        logging.info(f"Replacing terraform required_version in {tf_required_filename}")
-        bump_version_latest(
-            tf_required_filename, current_tf_version, latest_terraform_version
-        )
-    if display:
+        if current_tf_version != latest_terraform_version:
+            logging.info(f"Updating terraform required_version in {tf_required_filename}")
+            bump_version_latest(
+                tf_required_filename, current_tf_version, latest_terraform_version
+            )
+        else:
+            logging.info(f"Required terraform version {current_tf_version} is already latest. Nothing to do.")
+    elif display:
         cat(tf_required_filename)
 
     # Providers versions
     logging.info("Searching for \"required_providers\" in all *.tf files ..")
     providers_required_filename = find_file_with_string("required_providers", "*.tf")
     if backup:
-        backup(providers_required_filename)
+        backup_file(providers_required_filename)
 
     providers_required_block = load_terraform_block(providers_required_filename)
     provider_map = resolve_providers(providers_required_block)
     logging.debug(f"found {len(provider_map)} providers\n{json.dumps(provider_map)}")
     for provider_config in provider_map.values():
-        source = provider_config["source"]
+        provider_name = provider_config["source"]
         version = provider_config["version"]
-        logging.info(f"Processing provider {source}")
-        latest_provider_version = get_latest_provider(source)
-        logging.info(
-            f"Current defined versions - {version}; latest available version for provider {source}: {latest_provider_version}"
-        )
-        provider_version = resolve_version(version)
-        if not dry_run:
+        logging.info(f"Processing provider {provider_name}")
+        latest_provider_version = get_latest_provider(provider_name)
+        provider_version = remove_comparison_operator(version)
+        if provider_version != latest_provider_version:
             logging.info(
-                f"Replacing required_providers in {providers_required_filename}"
+                f"Updating provider {provider_name} in required_providers from {provider_version} to {latest_provider_version}"
             )
-            bump_version_latest(
-                providers_required_filename, provider_version, latest_provider_version
-            )
+            if not dry_run:        
+                bump_version_latest(
+                    providers_required_filename, provider_version, latest_provider_version
+                )
+        else:
+            logging.info(f"Required provider version {provider_version} is already latest for {provider_name}. Nothing to do")
         if display:
             cat(providers_required_filename)
 
+    logging.info(f"Versions are up to date. Please check in any updated files.")
 
-def backup(filename):
+
+def backup_file(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     src_path = os.path.join(current_dir, filename)
-    dst_path = os.path.join(current_dir, filename + ".bak")
+    dst_path = os.path.join(current_dir, filename + ".bkp")
     shutil.copy(src_path, dst_path)
 
 
@@ -117,6 +118,7 @@ def bump_version_latest(file_name, search_string, replace_string):
     with fileinput.FileInput(file_name, inplace=True, backup=False) as file:
         for line in file:
             print(line.replace(search_string, replace_string), end="")
+    logging.info("Done..")
 
 
 def find_file_with_string(string, extension):
@@ -125,7 +127,7 @@ def find_file_with_string(string, extension):
     for file in files:
         with open(file, 'r') as f:
             if string in f.read():
-                logging.info(f'matched string {string} in file {file}')
+                logging.info(f'Matched string {string} in file {file}')
                 files_matched.append(file)
 
     if len(files_matched) != 1:
@@ -190,7 +192,7 @@ def get_latest_provider(source):
         logging.error(f"{response.status_code} {e} error querying {url}:\n {response.text}")
         return None
 
-def resolve_version(version_string):
+def remove_comparison_operator(version_string):
     version_parts = version_string.split(" ")
     if len(version_parts) == 2:
         version = version_parts[1]

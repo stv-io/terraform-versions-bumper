@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description="Bump terraform required versions and provider versions to latest releases")
     parser.add_argument("--backup", "-b", dest='backup', help="create backup files with extenstion .bkp", action="store_true")
     parser.add_argument("--display", "-p", dest='display', help="display the files generated", action="store_true")
-    parser.add_argument("--debug", "-d", dest='debug', help="display matched files and contents", action="store_true")
+    parser.add_argument("--debug", "-d", dest='debug', help="debug level verbosity", action="store_true")
     args = parser.parse_args()
 
     backup = args.backup

@@ -1,0 +1,21 @@
+name: Test running setup
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  run-setup:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    - name: Setup test
+      run: |
+        python setup.py install
+        terraform-versions-bumper -h
+        cd tests
+        terraform-versions-bumper -d -b
+        for file in $(ls *.tf); do printf "$file\n"; diff $file.bkp $file || :; done

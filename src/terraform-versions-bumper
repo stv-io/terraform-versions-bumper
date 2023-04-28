@@ -1,0 +1,212 @@
+#! /usr/bin/env python
+import glob
+import fileinput
+import os
+import shutil
+import sys
+import logging
+import pygohcl
+import httpx
+import json
+import argparse
+
+__cwd__ = os.path.realpath(os.getcwd())
+
+def main():
+    parser = argparse.ArgumentParser(description="Bump terraform required versions and provider versions to latest releases")
+    parser.add_argument("--backup", "-b", dest='backup', help="create backup files with extenstion .bkp", action="store_true")
+    parser.add_argument("--display", "-p", dest='display', help="display the files generated", action="store_true")
+    parser.add_argument("--debug", "-d", dest='debug', help="display matched files and contents", action="store_true")
+    args = parser.parse_args()
+
+    backup = args.backup
+    display = args.display
+    debug = args.debug
+
+    log_format = "%(levelname)s: %(message)s"
+    logging.basicConfig(format=log_format, level=logging.INFO)
+    log_level = "DEBUG" if debug else "INFO"
+    logging.getLogger().setLevel(log_level)
+    httpx_logger = logging.getLogger("httpx")
+    httpx_logger.setLevel(log_level)
+    urllib3_logger = logging.getLogger("urllib3")
+    urllib3_logger.setLevel(log_level)
+
+    # Terraform versions
+    logging.info("Searching for \"required_version\" in all *.tf files ..")
+    tf_required_filename = find_file_with_string("required_version", "*.tf")
+    if backup:
+        backup_file(tf_required_filename)
+    logging.info(f"Processing {tf_required_filename}..")
+    tf_required_block = load_terraform_block(tf_required_filename)
+    current_tf_version_string = resolve_tf_version(tf_required_block)
+    current_tf_version = remove_comparison_operator(current_tf_version_string)
+    logging.info(f"current_tf_version {current_tf_version}")
+    latest_terraform_release = get_latest_terraform_release()
+    latest_terraform_version = latest_terraform_release.replace("v", "")
+    if current_tf_version != latest_terraform_version:
+        logging.info(f"Updating terraform required_version in {tf_required_filename}")
+        bump_version_latest(
+            tf_required_filename, current_tf_version, latest_terraform_version
+        )
+    else:
+        logging.info(f"Required terraform version {current_tf_version} is already latest. Nothing to do.")
+    if display:
+        cat(tf_required_filename)
+
+    # Providers versions
+    logging.info("Searching for \"required_providers\" in all *.tf files ..")
+    providers_required_filename = find_file_with_string("required_providers", "*.tf")
+    if backup:
+        backup_file(providers_required_filename)
+
+    providers_required_block = load_terraform_block(providers_required_filename)
+    provider_map = resolve_providers(providers_required_block)
+    logging.debug(f"found {len(provider_map)} providers\n{json.dumps(provider_map)}")
+    for provider_config in provider_map.values():
+        provider_name = provider_config["source"]
+        version = provider_config["version"]
+        logging.info(f"Processing provider {provider_name}")
+        latest_provider_version = get_latest_provider(provider_name)
+        provider_version = remove_comparison_operator(version)
+        if provider_version != latest_provider_version:
+            logging.info(
+                f"Updating provider {provider_name} in required_providers from {provider_version} to {latest_provider_version}"
+            )
+            bump_version_latest(
+                providers_required_filename, provider_version, latest_provider_version
+            )
+        else:
+            logging.info(f"Required provider version {provider_version} is already latest for {provider_name}. Nothing to do")
+        if display:
+            cat(providers_required_filename)
+
+    logging.info("Versions are up to date. Please check in any updated files.")
+
+
+def backup_file(filename):
+    src_path = os.path.join(__cwd__, filename)
+    dst_path = os.path.join(__cwd__, filename + ".bkp")
+    shutil.copy(src_path, dst_path)
+
+
+def cat(filename):
+    abs_file = os.path.join(__cwd__, filename)
+    logging.info(f"Displaying the contents of {abs_file}")
+    with open(os.path.join(__cwd__, (abs_file)), 'r') as file:
+        file_contents = file.read()
+    sys.stdout.write(file_contents)
+    print("\n")
+
+
+def delete(filename):
+    abs_file = os.path.join(__cwd__, filename)
+    logging.info(f"Deleting {abs_file}")
+    os.remove(abs_file)
+
+
+def bump_version_latest(file_name, search_string, replace_string):
+    logging.info(
+        f"Replacing version {search_string} with {replace_string} in {file_name}"
+    )
+    with fileinput.FileInput(file_name, inplace=True, backup=False) as file:
+        for line in file:
+            print(line.replace(search_string, replace_string), end="")
+    logging.info("Done..")
+
+
+def find_file_with_string(string, extension):
+    files = glob.glob(extension)
+    files_matched = []
+    for file in files:
+        with open(os.path.join(__cwd__, (file)), 'r') as f:
+            if string in f.read():
+                logging.info(f'Matched string {string} in file {file}')
+                files_matched.append(file)
+
+    if len(files_matched) != 1:
+        logging.error(
+            f'The string "{string}" was found in {len(files_matched)} files: {files_matched}.'
+        )
+        logging.error('Please run "terraform validate", fix, and try again')
+        sys.exit(1)
+    return files_matched[0]
+
+
+def load_terraform_block(file):
+    with open(os.path.join(__cwd__, (file)), 'r') as f:
+        terraform_block = pygohcl.loads(f.read())
+    return terraform_block
+
+
+def resolve_tf_version(content):
+    current_tf_version = None
+    if "terraform" in content:
+        terraform = content["terraform"]
+        if "required_version" in terraform:
+            current_tf_version = terraform["required_version"]
+    return current_tf_version
+
+
+def resolve_providers(content):
+    terraform = content.get("terraform", {})
+    required_providers = terraform.get("required_providers", {})
+    return {
+        name: {
+            "source": config["source"],
+            "version": config["version"]
+        }
+        for name, config in required_providers.items()
+        if "source" in config and "version" in config
+    }
+
+
+def get_latest_terraform_release():
+    url = "https://api.github.com/repos/hashicorp/terraform/releases/latest"
+    with httpx.Client() as client:
+        response = client.get(url)
+        logging.debug(f"Response status code: {response.status_code}")
+    try:
+        response.raise_for_status()
+        return response.json()["tag_name"]
+    except httpx.HTTPError as e:
+        logging.error(f"{response.status_code} {e} error querying {url}:\n {response.text}")
+        return None
+
+
+def get_latest_provider(source):
+    url = f"https://registry.terraform.io/v2/providers/{source}/provider-versions"
+    with httpx.Client() as client:
+        response = client.get(url)
+        logging.debug(f"Response status code: {response.status_code}")
+    try:
+        response.raise_for_status()
+        return response.json()["data"][-1]["attributes"]["version"]
+    except httpx.HTTPError as e:
+        logging.error(f"{response.status_code} {e} error querying {url}:\n {response.text}")
+        return None
+
+
+def remove_comparison_operator(version_string):
+    version_parts = version_string.split(" ")
+    if len(version_parts) == 2:
+        version = version_parts[1]
+    elif len(version_parts) == 1:
+        if version_parts[0].isnumeric() or isfloat(version_parts[0]):
+            version = version_parts[0]
+    else:
+        logging.error(f"Version {version_string} not supported")
+        sys.exit(1)
+    return version
+
+
+def isfloat(num):
+    try:
+        float(num)
+        return True
+    except ValueError:
+        return False
+
+
+if __name__ == "__main__":
+    main()

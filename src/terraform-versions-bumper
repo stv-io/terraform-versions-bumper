@@ -10,16 +10,15 @@ import httpx
 import json
 import argparse
 
+__cwd__ = os.path.realpath(os.getcwd())
 
 def main():
     parser = argparse.ArgumentParser(description="Bump terraform required versions and provider versions to latest releases")
-    parser.add_argument("--dry-run", "-r", dest='dry_run', help="Dry run, don't modify files", action="store_true")
-    parser.add_argument("--backup", "-b", dest='backup', help="create backup files with a suffix", action="store_true")
-    parser.add_argument("--display", "-d", dest='display', help="display the files generated", action="store_true")
-    parser.add_argument("--debug", "-v", dest='debug', help="display matched files and contents", action="store_true")
+    parser.add_argument("--backup", "-b", dest='backup', help="create backup files with extenstion .bkp", action="store_true")
+    parser.add_argument("--display", "-p", dest='display', help="display the files generated", action="store_true")
+    parser.add_argument("--debug", "-d", dest='debug', help="display matched files and contents", action="store_true")
     args = parser.parse_args()
 
-    dry_run = args.dry_run
     backup = args.backup
     display = args.display
     debug = args.debug
@@ -45,15 +44,14 @@ def main():
     logging.info(f"current_tf_version {current_tf_version}")
     latest_terraform_release = get_latest_terraform_release()
     latest_terraform_version = latest_terraform_release.replace("v", "")
-    if not dry_run:
-        if current_tf_version != latest_terraform_version:
-            logging.info(f"Updating terraform required_version in {tf_required_filename}")
-            bump_version_latest(
-                tf_required_filename, current_tf_version, latest_terraform_version
-            )
-        else:
-            logging.info(f"Required terraform version {current_tf_version} is already latest. Nothing to do.")
-    elif display:
+    if current_tf_version != latest_terraform_version:
+        logging.info(f"Updating terraform required_version in {tf_required_filename}")
+        bump_version_latest(
+            tf_required_filename, current_tf_version, latest_terraform_version
+        )
+    else:
+        logging.info(f"Required terraform version {current_tf_version} is already latest. Nothing to do.")
+    if display:
         cat(tf_required_filename)
 
     # Providers versions
@@ -75,10 +73,9 @@ def main():
             logging.info(
                 f"Updating provider {provider_name} in required_providers from {provider_version} to {latest_provider_version}"
             )
-            if not dry_run:
-                bump_version_latest(
-                    providers_required_filename, provider_version, latest_provider_version
-                )
+            bump_version_latest(
+                providers_required_filename, provider_version, latest_provider_version
+            )
         else:
             logging.info(f"Required provider version {provider_version} is already latest for {provider_name}. Nothing to do")
         if display:
@@ -88,25 +85,22 @@ def main():
 
 
 def backup_file(filename):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    src_path = os.path.join(current_dir, filename)
-    dst_path = os.path.join(current_dir, filename + ".bkp")
+    src_path = os.path.join(__cwd__, filename)
+    dst_path = os.path.join(__cwd__, filename + ".bkp")
     shutil.copy(src_path, dst_path)
 
 
 def cat(filename):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    abs_file = os.path.join(current_dir, filename)
+    abs_file = os.path.join(__cwd__, filename)
     logging.info(f"Displaying the contents of {abs_file}")
-    with open(abs_file, 'r') as file:
+    with open(os.path.join(__cwd__, (abs_file)), 'r') as file:
         file_contents = file.read()
     sys.stdout.write(file_contents)
     print("\n")
 
 
 def delete(filename):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    abs_file = os.path.join(current_dir, filename)
+    abs_file = os.path.join(__cwd__, filename)
     logging.info(f"Deleting {abs_file}")
     os.remove(abs_file)
 
@@ -125,7 +119,7 @@ def find_file_with_string(string, extension):
     files = glob.glob(extension)
     files_matched = []
     for file in files:
-        with open(file, 'r') as f:
+        with open(os.path.join(__cwd__, (file)), 'r') as f:
             if string in f.read():
                 logging.info(f'Matched string {string} in file {file}')
                 files_matched.append(file)
@@ -140,7 +134,7 @@ def find_file_with_string(string, extension):
 
 
 def load_terraform_block(file):
-    with open(file) as f:
+    with open(os.path.join(__cwd__, (file)), 'r') as f:
         terraform_block = pygohcl.loads(f.read())
     return terraform_block
 

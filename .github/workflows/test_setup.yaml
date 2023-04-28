@@ -12,7 +12,9 @@ jobs:
     - uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-    - name: Setup and test executable
+    - name: Setup test
       run: |
         python setup.py install
         terraform-versions-bumper -h
+        terraform-versions-bumper -d -b
+        for file in $(ls *.tf); do printf "$file\n"; diff $file.bkp $file; done

@@ -18,4 +18,4 @@ jobs:
         terraform-versions-bumper -h
         cd tests
         terraform-versions-bumper -d -b
-        for file in $(ls *.tf); do printf "$file\n"; diff $file.bkp $file; done
+        for file in $(ls *.tf); do printf "$file\n"; diff $file.bkp $file || :; done

@@ -1,0 +1,16 @@
+name: Test running setup
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  run-setup:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    - name: Install setup
+      run: python setup.py install

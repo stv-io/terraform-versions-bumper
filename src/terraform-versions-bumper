@@ -192,20 +192,11 @@ def remove_comparison_operator(version_string):
     if len(version_parts) == 2:
         version = version_parts[1]
     elif len(version_parts) == 1:
-        if version_parts[0].isnumeric() or isfloat(version_parts[0]):
-            version = version_parts[0]
+        version = version_parts[0]
     else:
         logging.error(f"Version {version_string} not supported")
         sys.exit(1)
     return version
-
-
-def isfloat(num):
-    try:
-        float(num)
-        return True
-    except ValueError:
-        return False
 
 
 if __name__ == "__main__":

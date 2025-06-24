@@ -1,8 +1,8 @@
 name: Create release from PR info
-
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   get-pr-info:
@@ -11,10 +11,10 @@ jobs:
       version: ${{ steps.get-pr-info.outputs.VERSION }}
       pr_num: ${{ steps.get-pr-info.outputs.PR_NUM }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 50
-          ref: 'main'
+          ref: "main"
       - name: Obtain PR and container tag info
         id: get-pr-info
         env:
@@ -27,7 +27,6 @@ jobs:
           echo "PR_NUM $PR_NUM"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "PR_NUM=$PR_NUM" >> $GITHUB_OUTPUT
-
   create-github-release:
     runs-on: ubuntu-latest
     needs: get-pr-info
@@ -38,6 +37,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{needs.get-pr-info.outputs.version}}
           PR_NUM: ${{needs.get-pr-info.outputs.pr_num}}
-        run: |
+        run: |-
           gh pr view $PR_NUM --json body --repo ${{ github.repository }} | jq -r .body > changelog.md
           gh release create ${VERSION} -F changelog.md --repo ${{ github.repository }}
